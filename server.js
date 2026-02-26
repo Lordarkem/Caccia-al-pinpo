@@ -539,11 +539,12 @@ function getUserIdForWebAuthn(normalizedUsername) {
   return Buffer.from(`user:${normalizedUsername}`, 'utf8');
 }
 
-function buildPasskeyRegistrationOptions(user, passkeys) {
+function buildPasskeyRegistrationOptions(user, passkeys, rpIDOverride) {
   ensurePasskeyServerAvailable();
+  const rpIDToUse = rpIDOverride || webauthnRpID;
   return generateRegistrationOptions({
     rpName: WEBAUTHN_RP_NAME,
-    rpID: webauthnRpID,
+    rpID: rpIDToUse,
     userName: user.username,
     userID: getUserIdForWebAuthn(user.normalizedUsername),
     userDisplayName: user.username,
@@ -559,10 +560,11 @@ function buildPasskeyRegistrationOptions(user, passkeys) {
   });
 }
 
-function buildPasskeyAuthenticationOptions(passkeys) {
+function buildPasskeyAuthenticationOptions(passkeys, rpIDOverride) {
   ensurePasskeyServerAvailable();
+  const rpIDToUse = rpIDOverride || webauthnRpID;
   return generateAuthenticationOptions({
-    rpID: webauthnRpID,
+    rpID: rpIDToUse,
     allowCredentials: passkeys.map((passkey) => ({
       id: passkey.id,
       transports: Array.isArray(passkey.transports) ? passkey.transports : [],
@@ -1299,8 +1301,22 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
         throw new HttpError(500, 'Configurazione passkey non valida sul server');
       }
 
+      // ricava host/origine dalla richiesta per forzare il corretto rpID/origin
+      const hostHeader = String(req.headers.host || '').split(':')[0];
+      const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0];
+      const originFromReq = `${proto}://${hostHeader}`;
+      // se mancano nelle liste attese, aggiungili
+      if (hostHeader && !webauthnExpectedRpIDs.includes(hostHeader)) {
+        webauthnExpectedRpIDs.push(hostHeader);
+      }
+      if (originFromReq && !webauthnExpectedOrigins.includes(originFromReq)) {
+        webauthnExpectedOrigins.push(originFromReq);
+      }
+
+      const rpIDOverride = hostHeader || undefined;
+
       if (!userPasskeys.length) {
-        const options = await buildPasskeyRegistrationOptions(user, userPasskeys);
+        const options = await buildPasskeyRegistrationOptions(user, userPasskeys, rpIDOverride);
         const token = createAuthFlow({
           stage: 'passkey-setup',
           normalizedUsername: user.normalizedUsername,
@@ -1317,7 +1333,7 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
         return;
       }
 
-      const options = await buildPasskeyAuthenticationOptions(userPasskeys);
+      const options = await buildPasskeyAuthenticationOptions(userPasskeys, rpIDOverride);
       const token = createAuthFlow({
         stage: 'passkey-auth',
         normalizedUsername: user.normalizedUsername,
@@ -1362,11 +1378,20 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
 
     let verification;
     try {
+      // aggiungi host/origine della richiesta alla lista attesa, se necessario
+      const hostHeader = String(req.headers.host || '').split(':')[0];
+      const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0];
+      const originFromReq = `${proto}://${hostHeader}`;
+      const expectedOrigins = [...webauthnExpectedOrigins];
+      const expectedRpIDs = [...webauthnExpectedRpIDs];
+      if (hostHeader && !expectedRpIDs.includes(hostHeader)) expectedRpIDs.push(hostHeader);
+      if (originFromReq && !expectedOrigins.includes(originFromReq)) expectedOrigins.push(originFromReq);
+
       verification = await verifyRegistrationResponse({
         response: credentialResponse,
         expectedChallenge: flow.challenge,
-        expectedOrigin: webauthnExpectedOrigins,
-        expectedRPID: webauthnExpectedRpIDs,
+        expectedOrigin: expectedOrigins,
+        expectedRPID: expectedRpIDs,
         requireUserVerification: false,
       });
     } catch (error) {
@@ -1438,11 +1463,19 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
 
     let verification;
     try {
+      const hostHeader = String(req.headers.host || '').split(':')[0];
+      const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0];
+      const originFromReq = `${proto}://${hostHeader}`;
+      const expectedOrigins = [...webauthnExpectedOrigins];
+      const expectedRpIDs = [...webauthnExpectedRpIDs];
+      if (hostHeader && !expectedRpIDs.includes(hostHeader)) expectedRpIDs.push(hostHeader);
+      if (originFromReq && !expectedOrigins.includes(originFromReq)) expectedOrigins.push(originFromReq);
+
       verification = await verifyAuthenticationResponse({
         response: credentialResponse,
         expectedChallenge: flow.challenge,
-        expectedOrigin: webauthnExpectedOrigins,
-        expectedRPID: webauthnExpectedRpIDs,
+        expectedOrigin: expectedOrigins,
+        expectedRPID: expectedRpIDs,
         credential: getWebAuthnCredentialFromStoredPasskey(storedPasskey),
         requireUserVerification: false,
       });

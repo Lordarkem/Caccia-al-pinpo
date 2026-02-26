@@ -61,6 +61,7 @@ npm run dev
 - La via viene impostata automaticamente con reverse geocoding.
 - La data mostrata e quella di inserimento del pin.
 - Per passkey il dominio/origine devono combaciare con `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
+  Il server ora rileva automaticamente l'host della richiesta e lo aggiunge alle origini/ID accettate, in modo che il challenge venga generato con il dominio corrente.
 - Tracking locale su `data/tracking.log` (un record JSON per riga).
 - Endpoint tracking: `GET /api/tracking?limit=200` (richiede login).
 
