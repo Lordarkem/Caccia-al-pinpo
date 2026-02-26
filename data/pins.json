@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "lat": 43.30006312285607,
+    "lng": 13.443929124133213,
+    "address": "Via Gino Valentini, Tre Vie, Fonte Scodella, Macerata, Marche, 62100, Italia",
+    "image_path": "1771914266841-efb7a139.jpg",
+    "created_at": "2026-02-24T06:24:27.019Z",
+    "updated_at": "2026-02-24T12:02:31.463Z"
+  },
+  {
+    "id": 2,
+    "lat": 43.299953883712405,
+    "lng": 13.444407235803427,
+    "address": "Via Gino Valentini, Tre Vie, Fonte Scodella, Macerata, Marche, 62100, Italia",
+    "image_path": "1771914288064-7f6b9b70.jpg",
+    "created_at": "2026-02-24T06:24:48.207Z",
+    "updated_at": "2026-02-24T06:26:48.879Z"
+  }
+]
