@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caccia al PINPO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  >
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header id="leftPanel" class="floating-panel top-left">
+      <div class="brand-block">
+        <h1>Caccia al PINPO</h1>
+        <p class="eyebrow">Trova e aggiungi i Pinpi</p>
+      </div>
+      <div class="mode-group" aria-label="Modalita mappa">
+        <button class="mode-btn is-active" data-mode="standard" type="button">Semplice</button>
+        <button class="mode-btn" data-mode="satellite" type="button">Satellitare</button>
+      </div>
+      <div class="panel-actions">
+        <button id="uploadButton" class="primary-btn" type="button">Carica immagine</button>
+        <button id="logoutButton" class="ghost-btn" type="button">Accedi</button>
+      </div>
+      <p id="statusLine" class="status-line">Modalita visualizzazione. Accedi per modificare pin.</p>
+    </header>
+
+    <div id="map"></div>
+
+    <aside id="moveToolbar" class="floating-panel top-right is-hidden" aria-live="polite">
+      <p class="move-title">Spostamento pin attivo</p>
+      <p class="move-description">Trascina il pin e conferma la nuova posizione.</p>
+      <div class="panel-actions">
+        <button id="saveMoveButton" class="primary-btn" type="button">Salva posizione</button>
+        <button id="cancelMoveButton" class="ghost-btn" type="button">Annulla</button>
+      </div>
+    </aside>
+
+    <aside id="mapPickBanner" class="floating-panel bottom-center is-hidden" aria-live="polite">
+      <p>Selezione da mappa attiva: clicca un punto dentro Macerata.</p>
+      <button id="cancelMapPickButton" class="ghost-btn" type="button">Annulla selezione</button>
+    </aside>
+  </div>
+
+  <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+  <input id="replaceImageInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+
+  <div id="authOverlay" class="overlay auth-overlay is-hidden">
+    <div class="auth-card">
+      <p class="eyebrow">Accesso utenti</p>
+      <h2>Entra nella mappa</h2>
+      <form id="loginForm">
+        <label class="field-label" for="usernameInput">Username</label>
+        <input id="usernameInput" class="field-input" type="text" autocomplete="username" required>
+        <label class="field-label" for="passwordInput">Password</label>
+        <input id="passwordInput" class="field-input" type="password" autocomplete="current-password" required>
+        <button class="primary-btn full-width" type="submit">Accedi</button>
+      </form>
+      <p class="auth-helper-text">Se richiesto, dopo password verra chiesta la passkey.</p>
+      <p id="loginError" class="error-text"></p>
+    </div>
+  </div>
+
+  <div id="dialogOverlay" class="overlay is-hidden" role="dialog" aria-modal="true">
+    <div class="dialog-card">
+      <h3 id="dialogTitle"></h3>
+      <p id="dialogMessage"></p>
+      <div id="dialogInputWrap" class="is-hidden">
+        <label class="field-label" id="dialogInputLabel" for="dialogInput"></label>
+        <input id="dialogInput" class="field-input" type="text">
+      </div>
+      <div id="dialogButtons" class="dialog-buttons"></div>
+    </div>
+  </div>
+
+  <div id="fullscreenOverlay" class="overlay is-hidden">
+    <button id="closeFullscreenButton" class="close-btn" type="button" aria-label="Chiudi schermo intero">&times;</button>
+    <figure class="fullscreen-figure">
+      <img id="fullscreenImage" src="" alt="Anteprima pin">
+      <figcaption id="fullscreenCaption"></figcaption>
+    </figure>
+  </div>
+
+  <div id="toast" class="toast is-hidden" aria-live="polite"></div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

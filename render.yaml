@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: macerata-map
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: WEBAUTHN_RP_NAME
+        value: Macerata FotoMap
+      - key: WEBAUTHN_RP_ID
+        fromService:
+          type: web
+          property: name
+      - key: WEBAUTHN_ORIGIN
+        fromService:
+          type: web
+          property: url
+      - key: AUTH_USERS
+        value: admin

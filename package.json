@@ -1,0 +1,23 @@
+{
+  "name": "sito-macerata-map",
+  "version": "1.0.0",
+  "description": "Mappa foto geolocalizzate di Macerata con upload immagini e gestione pin",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "leaflet",
+    "openstreetmap",
+    "macerata",
+    "geotag"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@simplewebauthn/server": "^13.2.3",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0"
+  }
+}
