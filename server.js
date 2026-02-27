@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const crypto = require('crypto');
+const { getCollection } = require('./db');
 let generateRegistrationOptions = null;
 let verifyRegistrationResponse = null;
 let generateAuthenticationOptions = null;
@@ -34,6 +35,7 @@ const WEBAUTHN_ORIGIN = process.env.WEBAUTHN_ORIGIN || `http://localhost:${PORT}
 
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const DATA_DIR = path.join(ROOT_DIR, 'data');
+// paths below are kept for reference but the app now persists to MongoDB instead of JSON files
 const PINS_PATH = path.join(DATA_DIR, 'pins.json');
 const AUTH_PATH = path.join(DATA_DIR, 'auth.json');
 const TRACKING_PATH = path.join(DATA_DIR, 'tracking.log');
@@ -96,8 +98,7 @@ const webauthnExpectedOrigins = parseDelimitedValues(WEBAUTHN_ORIGIN);
 const webauthnExpectedRpIDs = parseDelimitedValues(WEBAUTHN_RP_ID);
 const webauthnRpID = webauthnExpectedRpIDs[0] || 'localhost';
 let authStore = { users: {} };
-let pinsStore = [];
-let nextPinId = 1;
+let nextPinId = 1; // counter for numeric pin ids stored in Mongo
 let initPromise = null;
 let boundaryInitPromise = null;
 let trackingWriteQueue = Promise.resolve();
@@ -491,27 +492,30 @@ async function ensureLocalDataPaths() {
 }
 
 async function initializeAuthStore() {
-  await ensureLocalDataPaths();
+  const col = await getCollection('auth_store');
+  // ensure index on _id maybe not needed
 
-  try {
-    await fsp.access(AUTH_PATH);
-  } catch (_error) {
-    await fsp.writeFile(AUTH_PATH, JSON.stringify({ users: {} }, null, 2), 'utf8');
+  // try to load existing document
+  const doc = await col.findOne({ _id: 1 });
+  if (!doc) {
+    // migrate from legacy file if present
+    let parsed = { users: {} };
+    try {
+      const raw = await fsp.readFile(AUTH_PATH, 'utf8');
+      parsed = JSON.parse(raw);
+    } catch (_e) {
+      parsed = { users: {} };
+    }
+    authStore = normalizeStoredAuth(parsed);
+    await col.insertOne({ _id: 1, data: authStore });
+  } else {
+    authStore = normalizeStoredAuth(doc.data || { users: {} });
   }
-
-  const raw = await fsp.readFile(AUTH_PATH, 'utf8');
-  let parsed = { users: {} };
-  try {
-    parsed = JSON.parse(raw);
-  } catch (_error) {
-    parsed = { users: {} };
-  }
-
-  authStore = normalizeStoredAuth(parsed);
 }
 
 async function persistAuthStore() {
-  await fsp.writeFile(AUTH_PATH, JSON.stringify(authStore, null, 2), 'utf8');
+  const col = await getCollection('auth_store');
+  await col.updateOne({ _id: 1 }, { $set: { data: authStore } }, { upsert: true });
 }
 
 function getUserAuthRecord(normalizedUsername) {
@@ -715,18 +719,32 @@ function normalizeTrackingEntry(entry) {
 }
 
 async function initializeTrackingStore() {
-  await ensureLocalDataPaths();
+  const col = await getCollection('tracking');
+  // migrate existing log entries if collection empty
   try {
-    await fsp.access(TRACKING_PATH);
-  } catch (_error) {
-    await fsp.writeFile(TRACKING_PATH, '', 'utf8');
+    const count = await col.countDocuments();
+    if (count === 0) {
+      const raw = await fsp.readFile(TRACKING_PATH, 'utf8');
+      const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          await appendTrackingEntry(entry);
+        } catch (_e) {
+          // ignore malformed lines
+        }
+      }
+    }
+  } catch (_e) {
+    // ignore if file missing or db error
   }
 }
 
 async function appendTrackingEntry(entry) {
-  const normalized = normalizeTrackingEntry(entry);
-  const row = `${JSON.stringify(normalized)}\n`;
-  await fsp.appendFile(TRACKING_PATH, row, 'utf8');
+  const n = normalizeTrackingEntry(entry);
+  const col = await getCollection('tracking');
+  // store as-is; ensure authenticated boolean is stored
+  await col.insertOne(n);
 }
 
 function trackEvent(req, session, action, details = {}) {
@@ -746,26 +764,9 @@ function trackEvent(req, session, action, details = {}) {
 
 async function readTrackingEntries(limit = 200) {
   const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 200, 2000));
-
-  try {
-    const raw = await fsp.readFile(TRACKING_PATH, 'utf8');
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    const selected = lines.slice(-safeLimit).reverse();
-    return selected
-      .map((line) => {
-        try {
-          return JSON.parse(line);
-        } catch (_error) {
-          return null;
-        }
-      })
-      .filter(Boolean);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
+  const col = await getCollection('tracking');
+  const rows = await col.find({}).sort({ at: -1 }).limit(safeLimit).toArray();
+  return rows.map(normalizeTrackingEntry);
 }
 
 function sessionCookieValue(sid) {
@@ -1141,7 +1142,16 @@ async function initializeMacerataBoundary() {
 }
 
 function normalizeStoredPin(raw) {
-  if (!raw || !Number.isInteger(raw.id)) {
+  if (!raw) {
+    return null;
+  }
+
+  let id = raw.id;
+  if (typeof id === 'string' && /^\d+$/.test(id)) {
+    id = Number(id);
+  }
+
+  if (!Number.isInteger(id)) {
     return null;
   }
 
@@ -1166,39 +1176,75 @@ function normalizeStoredPin(raw) {
 }
 
 async function initializePinStore() {
-  let parsed = [];
+  const col = await getCollection('pins');
+  // ensure an index on id for fast lookup
+  await col.createIndex({ id: 1 }, { unique: true });
 
-  await ensureLocalDataPaths();
-
-  try {
-    await fsp.access(PINS_PATH);
-  } catch (_error) {
-    await fsp.writeFile(PINS_PATH, '[]', 'utf8');
+  // compute nextPinId based on existing documents
+  const last = await col.find({}).sort({ id: -1 }).limit(1).toArray();
+  if (last && last.length > 0 && typeof last[0].id === 'number') {
+    nextPinId = last[0].id + 1;
+  } else {
+    nextPinId = 1;
   }
 
-  const raw = await fsp.readFile(PINS_PATH, 'utf8');
+  // migrate from legacy JSON file if collection empty
   try {
-    const candidate = JSON.parse(raw);
-    if (Array.isArray(candidate)) {
-      parsed = candidate;
+    const count = await col.countDocuments();
+    if (count === 0) {
+      const raw = await fsp.readFile(PINS_PATH, 'utf8');
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const rawPin of arr) {
+          const pin = normalizeStoredPin(rawPin);
+          if (pin && pin.image_path) {
+            await col.insertOne(pin);
+            if (typeof pin.id === 'number' && pin.id >= nextPinId) {
+              nextPinId = pin.id + 1;
+            }
+          }
+        }
+      }
     }
-  } catch (_error) {
-    parsed = [];
+  } catch (e) {
+    // ignore migration errors
   }
-
-  pinsStore = parsed
-    .map(normalizeStoredPin)
-    .filter((pin) => pin && pin.image_path);
-
-  nextPinId = pinsStore.reduce((maxId, pin) => Math.max(maxId, pin.id), 0) + 1;
 }
 
-async function persistPins() {
-  await fsp.writeFile(PINS_PATH, JSON.stringify(pinsStore, null, 2), 'utf8');
+// persistence is now handled by individual queries rather than writing the
+// entire collection to a file; the old function has been removed.
+
+async function findPinById(pinId) {
+  const col = await getCollection('pins');
+  const doc = await col.findOne({ id: pinId });
+  return doc ? normalizeStoredPin(doc) : null;
 }
 
-function findPinById(pinId) {
-  return pinsStore.find((pin) => pin.id === pinId) || null;
+// helper: return all pins sorted by creation date (newest first)
+async function getAllPins() {
+  const col = await getCollection('pins');
+  const rows = await col.find({}).sort({ created_at: -1 }).toArray();
+  return rows.map(normalizeStoredPin);
+}
+
+async function createPinInDb(pin) {
+  const col = await getCollection('pins');
+  pin.id = nextPinId++;
+  await col.insertOne(pin);
+  return pin;
+}
+
+async function updatePinInDb(pin) {
+  const col = await getCollection('pins');
+  await col.updateOne(
+    { id: pin.id },
+    { $set: { lat: pin.lat, lng: pin.lng, address: pin.address, image_path: pin.image_path, updated_at: pin.updated_at } }
+  );
+}
+
+async function deletePinInDb(id) {
+  const col = await getCollection('pins');
+  await col.deleteOne({ id });
 }
 
 async function safeDeleteFileByName(filename) {
@@ -1530,7 +1576,8 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
 
   if (req.method === 'GET' && pathname === '/api/pins') {
     await trackEvent(req, session, 'pins_list_view');
-    jsonResponse(res, 200, sortPinsByLatest(pinsStore).map(pinRowToResponse));
+    const all = await getAllPins();
+    jsonResponse(res, 200, sortPinsByLatest(all).map(pinRowToResponse));
     return;
   }
 
@@ -1567,7 +1614,6 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
       const nowIso = new Date().toISOString();
 
       const createdPin = {
-        id: nextPinId,
         lat,
         lng,
         address,
@@ -1576,9 +1622,7 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
         updated_at: nowIso,
       };
 
-      nextPinId += 1;
-      pinsStore.push(createdPin);
-      await persistPins();
+      await createPinInDb(createdPin);
       await trackEvent(req, session, 'pin_created', {
         pinId: createdPin.id,
         lat: createdPin.lat,
@@ -1599,7 +1643,7 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
   const pinMatch = pathname.match(/^\/api\/pins\/(\d+)$/);
   if (pinMatch) {
     const pinId = Number.parseInt(pinMatch[1], 10);
-    const pin = findPinById(pinId);
+    const pin = await findPinById(pinId);
 
     if (!pin) {
       throw new HttpError(404, 'Pin non trovato');
@@ -1653,7 +1697,7 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
         }
 
         pin.updated_at = new Date().toISOString();
-        await persistPins();
+        await updatePinInDb(pin);
         await trackEvent(req, session, 'pin_updated', {
           pinId: pin.id,
           changedPosition: hasLat && hasLng,
@@ -1671,8 +1715,7 @@ async function handleApiRequest(req, res, pathname, searchParams, session) {
     }
 
     if (req.method === 'DELETE') {
-      pinsStore = pinsStore.filter((item) => item.id !== pinId);
-      await persistPins();
+      await deletePinInDb(pinId);
       await safeDeleteFileByName(pin.image_path);
       await trackEvent(req, session, 'pin_deleted', { pinId });
       jsonResponse(res, 200, { ok: true });
@@ -1912,9 +1955,7 @@ async function startServer() {
   server.listen(PORT, () => {
     console.log(`Server attivo su http://localhost:${PORT}`);
     console.log(`Boundary source: ${macerataGeo.sourceLabel}`);
-    console.log(`Archivio pin: ${PINS_PATH}`);
-    console.log(`Archivio auth: ${AUTH_PATH}`);
-    console.log(`Archivio tracking: ${TRACKING_PATH}`);
+    console.log(`Using database at: ${process.env.MONGODB_URI || process.env.DATABASE_URL || process.env.MONGO_URL || process.env.MYSQL_URL || '<not configured>'}`);
     console.log(`Utenti auth: ${listAuthUsers().join(', ')}`);
   });
 }

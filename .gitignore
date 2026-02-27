@@ -7,3 +7,6 @@ data/pins.json
 data/tracking.log
 uploads/*
 !uploads/.gitkeep
+
+# local credential file used for Mongo URI fallback
+.txt

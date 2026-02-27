@@ -13,7 +13,7 @@ Sito web con mappa gratuita (OpenStreetMap/Leaflet) dedicata al solo comune di M
 - modifica pin (sostituzione immagine)
 - spostamento pin (drag + conferma)
 - eliminazione pin
-- persistenza su file JSON (`data/pins.json`)
+- persistenza su database MongoDB (consigliato, configurabile tramite `MONGODB_URI`/`DATABASE_URL`/`MONGO_URL`) o compatibile MySQL se preferisci
 - autenticazione multiutente
 - passkey WebAuthn opzionale per utente
 - nessun ruolo: ogni utente autenticato puo creare/modificare/eliminare pin
@@ -34,8 +34,14 @@ npm install
 
 2. Configura ambiente:
 
-- configura direttamente `.env`
-- imposta almeno:
+- configura direttamente `.env` oppure imposta le variabili nell'ambiente di esecuzione.
+- imposta almeno (oppure crea un file `.txt` con la URI sull’ultima riga):
+
+  **il file `.txt` è presente nel `.gitignore`**, quindi puoi usarlo per contener
+  collegamenti privati senza rischio di pubblicarli nel repository.
+  - `MONGODB_URI` (es. `mongodb+srv://user:pass@cluster0.xxxxxx.mongodb.net/dbname`) oppure `DATABASE_URL`/`MONGO_URL`; il servizio si collegherà automaticamente.
+    - se preferisci usare MySQL compatibile puoi fornire un URL `mysql://...`, ma MongoDB è raccomandato.
+
   - formato utenti supportato:
     - `AUTH_USERS=admin,mario` + `AUTH_USER_<NOME>_PASSWORD` + `AUTH_USER_<NOME>_PASSKEY`
     - oppure `AUTH_USERS_ADMIN=Admin` + `AUTH_USER_ADMIN_PASSWORD=...` + `AUTH_USER_ADMIN_PASSKEY=si/no`
@@ -62,7 +68,7 @@ npm run dev
 - La data mostrata e quella di inserimento del pin.
 - Per passkey il dominio/origine devono combaciare con `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
   Il server ora rileva automaticamente l'host della richiesta e lo aggiunge alle origini/ID accettate, in modo che il challenge venga generato con il dominio corrente.
-- Tracking locale su `data/tracking.log` (un record JSON per riga).
+- Tracking opzionale salvato in tabella `tracking` del database (se `DATABASE_URL` impostato). In locale, se non presente, continua a usare `data/tracking.log`.
 - Endpoint tracking: `GET /api/tracking?limit=200` (richiede login).
 
 ## Deploy Render
@@ -82,6 +88,7 @@ Questo progetto è pronto per Render:
    - `NODE_ENV=production`
    - `PORT=3000` (automatico su Render)
    - `SESSION_SECRET` (genera un valore sicuro)
+   - `MONGODB_URI`/`DATABASE_URL`/`MONGO_URL` (indirizzo del tuo server MongoDB Atlas, PlanetScale, ecc. oppure MySQL se lo usi)
    - `ADMIN_USERNAME=admin`
    - `ADMIN_PASSWORD` (cambia questo!)
    - `WEBAUTHN_RP_NAME=Macerata FotoMap`
