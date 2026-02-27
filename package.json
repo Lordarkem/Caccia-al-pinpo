@@ -17,8 +17,8 @@
   "license": "MIT",
   "dependencies": {
     "@simplewebauthn/server": "^13.2.3",
+    "mongodb": "^5.9.2",
     "reflect-metadata": "^0.2.2",
-    "tsyringe": "^4.10.0",
-    "mongodb": "^5.8.0"
+    "tsyringe": "^4.10.0"
   }
 }
