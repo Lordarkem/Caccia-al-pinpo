@@ -58,9 +58,30 @@
   };
 
   document.addEventListener('DOMContentLoaded', () => {
+    // Wait for MapLibre GL to load before initializing
+    if (typeof window.maplibregl === 'undefined') {
+      // Try waiting for async script loading
+      const retries = 50; // 5 seconds total
+      let attempt = 0;
+      const waitForMapLibre = setInterval(() => {
+        if (typeof window.maplibregl !== 'undefined') {
+          clearInterval(waitForMapLibre);
+          initializeApp();
+        } else if (++attempt >= retries) {
+          clearInterval(waitForMapLibre);
+          console.error('MapLibre GL failed to load after 5 seconds');
+          alert('Errore: libreria mappa non disponibile. Ricarica la pagina.');
+        }
+      }, 100);
+    } else {
+      initializeApp();
+    }
+  });
+
+  function initializeApp() {
     bindEvents();
     bootstrapSession();
-  });
+  }
 
   function bindEvents() {
     elements.loginForm.addEventListener('submit', onLoginSubmit);
@@ -396,6 +417,10 @@
   }
 
   async function loadMapConfigAndInit() {
+    // Ensure maplibregl is available
+    if (typeof window.maplibregl === 'undefined') {
+      throw new Error('MapLibre GL non disponibile: libreria non caricata');
+    }
     const config = await apiFetch('/api/config');
     state.mapConfig = config;
     state.maxImageSizeBytes = (Number(config.maxImageSizeMb) || 12) * 1024 * 1024;
