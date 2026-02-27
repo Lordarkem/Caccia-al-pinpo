@@ -66,7 +66,7 @@
       const waitForMapLibre = setInterval(() => {
         if (typeof window.maplibregl !== 'undefined') {
           clearInterval(waitForMapLibre);
-          initializeApp();
+          bootstrapApp();
         } else if (++attempt >= retries) {
           clearInterval(waitForMapLibre);
           console.error('MapLibre GL failed to load after 5 seconds');
@@ -74,11 +74,11 @@
         }
       }, 100);
     } else {
-      initializeApp();
+      bootstrapApp();
     }
   });
 
-  function initializeApp() {
+  function bootstrapApp() {
     bindEvents();
     bootstrapSession();
   }
