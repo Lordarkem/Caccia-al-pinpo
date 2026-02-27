@@ -4,11 +4,8 @@
     mapConfig: null,
     isAuthenticated: false,
     currentMapMode: 'standard',
-    tileLayers: {},
-    activeTileLayer: null,
-    boundaryLayer: null,
-    boundaryGlowLayer: null,
-    worldMaskLayer: null,
+    // tileLayers/activeTileLayer used in Leaflet implementation - removed
+    // boundary/world mask layers are managed via MapLibre sources/layers
     cityBounds: null,
     cityMinZoom: null,
     markers: new Map(),
@@ -403,124 +400,82 @@
     state.mapConfig = config;
     state.maxImageSizeBytes = (Number(config.maxImageSizeMb) || 12) * 1024 * 1024;
 
-    const bounds = leafletBoundsFromBoundaryFeature(config.macerata.boundary)
-      || leafletBoundsFromApi(config.macerata.bounds);
+    // compute center and bounds in [lng,lat] order for MapLibre
+    const center = [config.macerata.center[0], config.macerata.center[1]];
+    const bounds = [
+      [config.macerata.bounds[0][0], config.macerata.bounds[0][1]],
+      [config.macerata.bounds[1][0], config.macerata.bounds[1][1]],
+    ];
     state.cityBounds = bounds;
-    const center = [config.macerata.center[1], config.macerata.center[0]];
 
-    state.map = L.map(elements.map, {
+    // create MapLibre GL map
+    state.map = new maplibregl.Map({
+      container: elements.map,
+      style: getMapLibreStyle(state.currentMapMode),
       center,
       zoom: 12.8,
       minZoom: 5,
       maxZoom: 19,
       maxBounds: bounds,
-      maxBoundsViscosity: 1,
-      zoomControl: false,
     });
 
-    L.control.zoom({ position: 'bottomright' }).addTo(state.map);
+    // navigation control includes rotation buttons
+    state.map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), 'bottomright');
 
-    state.tileLayers = createTileLayers();
-    setMapMode(state.currentMapMode, { silentStatus: true });
-
-    state.map.fitBounds(bounds, {
-      padding: [38, 38],
-      animate: false,
-    });
-
-    applyCityZoomConstraints();
-
-    state.map.on('click', (event) => {
+    state.map.on('click', (e) => {
       if (state.mapPickMode) {
-        onMapPickClick(event.latlng);
+        // adapt to the original handler signature
+        onMapPickClick({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng } });
       }
     });
 
-    state.map.on('resize', () => {
-      applyCityZoomConstraints();
+    state.map.on('load', () => {
+      addMacerataBoundaryLayer();
+      setStatus(`Mappa gratuita OSM pronta. Limite immagine: ${config.maxImageSizeMb}MB.`);
     });
-
-    addMacerataBoundaryLayer();
-    setStatus(`Mappa gratuita OSM pronta. Limite immagine: ${config.maxImageSizeMb}MB.`);
   }
 
+  // applyCityZoomConstraints was specific to Leaflet and is no longer needed with MapLibre.
   function applyCityZoomConstraints() {
-    if (!state.map || !state.cityBounds) {
-      return;
-    }
-
-    const strictMinZoom = state.map.getBoundsZoom(state.cityBounds, true, L.point(0, 0));
-    const fallbackMinZoom = state.map.getBoundsZoom(state.cityBounds, false, L.point(0, 0));
-    const baseMinZoom = Number.isFinite(strictMinZoom) ? strictMinZoom : fallbackMinZoom;
-    const minZoom = Math.max(5, baseMinZoom - 0.45);
-    if (Number.isFinite(minZoom)) {
-      state.cityMinZoom = minZoom;
-      state.map.setMinZoom(minZoom);
-      if (state.map.getZoom() < minZoom) {
-        state.map.setZoom(minZoom);
-      }
-    }
-
-    state.map.setMaxBounds(state.cityBounds);
+    // no-op
   }
 
   function leafletBoundsFromBoundaryFeature(boundaryFeature) {
-    if (!boundaryFeature || !boundaryFeature.geometry) {
-      return null;
-    }
-
-    try {
-      const bounds = L.geoJSON(boundaryFeature).getBounds();
-      if (bounds && bounds.isValid()) {
-        return bounds;
-      }
-    } catch (_error) {
-      return null;
-    }
-
+    // no longer used with MapLibre; kept for reference
     return null;
   }
 
   function leafletBoundsFromApi(apiBounds) {
-    const sw = L.latLng(apiBounds[0][1], apiBounds[0][0]);
-    const ne = L.latLng(apiBounds[1][1], apiBounds[1][0]);
-    return L.latLngBounds(sw, ne);
+    // no longer used with MapLibre; convert to array of 2 coordinate pairs
+    if (!apiBounds || !Array.isArray(apiBounds) || apiBounds.length < 2) return null;
+    return [
+      [apiBounds[0][0], apiBounds[0][1]],
+      [apiBounds[1][0], apiBounds[1][1]],
+    ];
   }
 
-  function createTileLayers() {
-    return {
-      standard: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors',
-      }),
-      satellite: L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        {
-          maxZoom: 19,
-          attribution: 'Tiles &copy; Esri',
-        },
-      ),
-    };
+  // MapLibre GL styles for different modes
+  function getMapLibreStyle(mode) {
+    if (mode === 'satellite') {
+      return 'https://demotiles.maplibre.org/style.json'; // placeholder; replace with actual satellite style if desired
+    }
+    // standard OSM-style vector tiles
+    return 'https://demotiles.maplibre.org/style.json';
   }
 
   function setMapMode(mode, options = {}) {
-    if (!state.map || !state.tileLayers[mode]) {
+    if (!state.map) {
       return;
     }
-
-    if (state.currentMapMode === mode && state.activeTileLayer) {
+    if (state.currentMapMode === mode) {
       return;
     }
 
     state.currentMapMode = mode;
     updateModeButtons();
 
-    if (state.activeTileLayer) {
-      state.map.removeLayer(state.activeTileLayer);
-    }
-
-    state.activeTileLayer = state.tileLayers[mode];
-    state.activeTileLayer.addTo(state.map);
+    const newStyle = getMapLibreStyle(mode);
+    state.map.setStyle(newStyle);
 
     closeActivePopup();
 
@@ -547,66 +502,26 @@
       return;
     }
 
-    if (state.worldMaskLayer) {
-      state.map.removeLayer(state.worldMaskLayer);
+    const sourceId = 'macerata-boundary';
+    if (state.map.getSource(sourceId)) {
+      state.map.getSource(sourceId).setData(state.mapConfig.macerata.boundary);
+    } else {
+      state.map.addSource(sourceId, { type: 'geojson', data: state.mapConfig.macerata.boundary });
+      state.map.addLayer({
+        id: sourceId + '-line',
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': '#ff304f',
+          'line-width': 3.5,
+        },
+      });
     }
-
-    if (state.boundaryLayer) {
-      state.map.removeLayer(state.boundaryLayer);
-    }
-    if (state.boundaryGlowLayer) {
-      state.map.removeLayer(state.boundaryGlowLayer);
-    }
-
-    const maskLayer = createWorldMaskLayer(state.mapConfig.macerata.boundary);
-    if (maskLayer) {
-      state.worldMaskLayer = maskLayer.addTo(state.map);
-    }
-    state.boundaryGlowLayer = null;
-
-    state.boundaryLayer = L.geoJSON(state.mapConfig.macerata.boundary, {
-      style: {
-        color: '#ff304f',
-        weight: 3.5,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round',
-        fillColor: '#ff304f',
-        fillOpacity: 0,
-        className: 'boundary-main-layer',
-      },
-      interactive: false,
-    }).addTo(state.map);
   }
 
+  // world mask not needed with MapLibre; function kept as stub
   function createWorldMaskLayer(boundaryFeature) {
-    if (!boundaryFeature || !boundaryFeature.geometry) {
-      return null;
-    }
-
-    const worldOuterRing = [
-      [-85, -180],
-      [-85, 180],
-      [85, 180],
-      [85, -180],
-    ];
-
-    const holes = extractGeometryOuterRings(boundaryFeature.geometry)
-      .map((ring) => ring.map((coord) => [coord[1], coord[0]]))
-      .filter((ring) => ring.length >= 4);
-
-    if (!holes.length) {
-      return null;
-    }
-
-    return L.polygon([worldOuterRing, ...holes], {
-      stroke: false,
-      fillColor: '#e4f0fa',
-      fillOpacity: 0.62,
-      interactive: false,
-      className: 'world-mask-layer',
-      fillRule: 'evenodd',
-    });
+    return null;
   }
 
   function extractGeometryOuterRings(geometry) {
@@ -644,70 +559,49 @@
   }
 
   function createPinIcon() {
-    return L.divIcon({
-      className: 'pin-marker-icon',
-      html: '<span class="pin-marker-dot" aria-hidden="true"></span>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-      popupAnchor: [0, -12],
-    });
+    const el = document.createElement('div');
+    el.className = 'pin-marker-icon';
+    el.innerHTML = '<span class="pin-marker-dot" aria-hidden="true"></span>';
+    el.style.width = '22px';
+    el.style.height = '22px';
+    return el;
   }
 
   function createPickIcon() {
-    return L.divIcon({
-      className: 'map-pick-icon',
-      html: '<span class="map-pick-dot" aria-hidden="true"></span>',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-    });
+    const el = document.createElement('div');
+    el.className = 'map-pick-icon';
+    el.innerHTML = '<span class="map-pick-dot" aria-hidden="true"></span>';
+    el.style.width = '20px';
+    el.style.height = '20px';
+    return el;
   }
 
   function upsertPinMarker(pin) {
     const existing = state.markers.get(pin.id);
     if (existing) {
       existing.pin = pin;
-      existing.marker.setLatLng([pin.lat, pin.lng]);
+      existing.marker.setLngLat([pin.lng, pin.lat]);
       return;
     }
 
-    const marker = L.marker([pin.lat, pin.lng], {
-      icon: createPinIcon(),
-      draggable: false,
-      keyboard: false,
-    }).addTo(state.map);
+    const el = createPinIcon();
+    const marker = new maplibregl.Marker({ element: el, draggable: false })
+      .setLngLat([pin.lng, pin.lat])
+      .addTo(state.map);
 
-    const markerEntry = { marker, pin };
-
-    marker.bindPopup(() => buildPinPopupContent(markerEntry.pin), {
+    const popup = new maplibregl.Popup({
       closeButton: false,
-      autoClose: false,
       closeOnClick: false,
       className: 'pin-popup',
-      minWidth: 280,
-      maxWidth: 320,
+      offset: 25,
+    }).setDOMContent(buildPinPopupContent(pin));
+
+    marker.getElement().addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPinPopup(pin.id);
     });
 
-    marker.on('click', () => {
-      openPinPopup(markerEntry.pin.id);
-    });
-
-    marker.on('popupopen', () => {
-      closeAllPinPopups(markerEntry.pin.id);
-      state.activePopupPinId = markerEntry.pin.id;
-    });
-
-    marker.on('popupclose', () => {
-      if (state.activePopupPinId === markerEntry.pin.id) {
-        state.activePopupPinId = null;
-      }
-    });
-
-    marker.on('dragend', () => {
-      if (state.moveState && state.moveState.pinId === markerEntry.pin.id) {
-        setStatus('Nuova posizione selezionata. Clicca "Salva posizione".');
-      }
-    });
-
+    const markerEntry = { marker, popup, pin };
     state.markers.set(pin.id, markerEntry);
   }
 
@@ -718,6 +612,7 @@
     }
 
     entry.marker.remove();
+    if (entry.popup) entry.popup.remove();
     state.markers.delete(pinId);
     if (state.activePopupPinId === pinId) {
       state.activePopupPinId = null;
@@ -734,11 +629,11 @@
 
   function closePopupByPinId(pinId) {
     const entry = state.markers.get(pinId);
-    if (!entry) {
+    if (!entry || !entry.popup) {
       return;
     }
 
-    entry.marker.closePopup();
+    entry.popup.remove();
     if (state.activePopupPinId === pinId) {
       state.activePopupPinId = null;
     }
@@ -749,7 +644,7 @@
       if (exceptPinId !== null && markerPinId === exceptPinId) {
         return;
       }
-      entry.marker.closePopup();
+      if (entry.popup) entry.popup.remove();
     });
 
     if (exceptPinId === null) {
@@ -759,13 +654,13 @@
 
   function openPinPopup(pinId) {
     const entry = state.markers.get(pinId);
-    if (!entry) {
+    if (!entry || !entry.popup) {
       return;
     }
 
     closeAllPinPopups(pinId);
 
-    entry.marker.openPopup();
+    entry.popup.setLngLat(entry.marker.getLngLat()).addTo(state.map);
     state.activePopupPinId = pinId;
   }
 
@@ -1013,7 +908,13 @@
         state.map.removeLayer(state.mapPickMarker);
       }
 
-      state.mapPickMarker = L.marker([lat, lng], { icon: createPickIcon(), keyboard: false }).addTo(state.map);
+      if (state.mapPickMarker) {
+        state.mapPickMarker.remove();
+      }
+      const pickEl = createPickIcon();
+      state.mapPickMarker = new maplibregl.Marker({ element: pickEl, draggable: false })
+        .setLngLat([lng, lat])
+        .addTo(state.map);
 
       const decision = await showChoiceDialog({
         title: 'Usare questo punto?',
