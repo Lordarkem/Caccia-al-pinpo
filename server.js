@@ -41,6 +41,8 @@ const AUTH_PATH = path.join(DATA_DIR, 'auth.json');
 const TRACKING_PATH = path.join(DATA_DIR, 'tracking.log');
 const UPLOADS_DIR = path.join(ROOT_DIR, 'uploads');
 
+const PLACEHOLDER_IMAGE_PATH = '/placeholder.svg';
+
 const MAX_IMAGE_SIZE_BYTES = 12 * 1024 * 1024;
 const JSON_BODY_LIMIT_BYTES = 30 * 1024 * 1024;
 const SESSION_COOKIE_NAME = 'macerata.sid';
@@ -598,11 +600,26 @@ function pinRowToResponse(pin) {
     lat: pin.lat,
     lng: pin.lng,
     address: pin.address,
-    imageUrl: `/uploads/${pin.image_path}`,
+    imageUrl: resolvePinImageUrl(pin),
     createdAt: pin.created_at,
     createdAtFormatted: formatItalianDate(pin.created_at),
     updatedAt: pin.updated_at,
   };
+}
+
+function resolvePinImageUrl(pin) {
+  try {
+    if (pin && typeof pin.image_path === 'string' && pin.image_path.trim()) {
+      const safeName = path.basename(pin.image_path);
+      const fullPath = path.join(UPLOADS_DIR, safeName);
+      if (fs.existsSync(fullPath)) {
+        return `/uploads/${safeName}`;
+      }
+    }
+  } catch (_e) {
+    // ignore
+  }
+  return PLACEHOLDER_IMAGE_PATH;
 }
 
 function sortPinsByLatest(pins) {
@@ -1169,7 +1186,7 @@ function normalizeStoredPin(raw) {
     lat,
     lng,
     address: typeof raw.address === 'string' ? raw.address : 'Indirizzo non disponibile',
-    image_path: typeof raw.image_path === 'string' ? raw.image_path : '',
+    image_path: typeof raw.image_path === 'string' ? path.basename(raw.image_path) : '',
     created_at: createdAt,
     updated_at: updatedAt,
   };
