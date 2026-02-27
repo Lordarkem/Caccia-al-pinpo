@@ -34,11 +34,11 @@ const WEBAUTHN_RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost';
 const WEBAUTHN_ORIGIN = process.env.WEBAUTHN_ORIGIN || `http://localhost:${PORT}`;
 
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
-const DATA_DIR = path.join(ROOT_DIR, 'data');
-// paths below are kept for reference but the app now persists to MongoDB instead of JSON files
-const PINS_PATH = path.join(DATA_DIR, 'pins.json');
-const AUTH_PATH = path.join(DATA_DIR, 'auth.json');
-const TRACKING_PATH = path.join(DATA_DIR, 'tracking.log');
+// old data directory paths persisted during early development; no longer used
+// const DATA_DIR = path.join(ROOT_DIR, 'data');
+// const PINS_PATH = path.join(DATA_DIR, 'pins.json');
+// const AUTH_PATH = path.join(DATA_DIR, 'auth.json');
+// const TRACKING_PATH = path.join(DATA_DIR, 'tracking.log');
 const UPLOADS_DIR = path.join(ROOT_DIR, 'uploads');
 
 const PLACEHOLDER_IMAGE_PATH = '/placeholder.svg';
@@ -488,30 +488,21 @@ function normalizeStoredAuth(raw) {
   return { users: normalizedUsers };
 }
 
-async function ensureLocalDataPaths() {
-  await fsp.mkdir(DATA_DIR, { recursive: true });
-  await fsp.mkdir(UPLOADS_DIR, { recursive: true });
-}
+// ensureLocalDataPaths was used when JSON files were stored locally; no longer required
+// function ensureLocalDataPaths() {
+//   await fsp.mkdir(DATA_DIR, { recursive: true });
+//   await fsp.mkdir(UPLOADS_DIR, { recursive: true });
+// }
 
 async function initializeAuthStore() {
   const col = await getCollection('auth_store');
-  // ensure index on _id maybe not needed
-
-  // try to load existing document
+  // read existing document, if any
   const doc = await col.findOne({ _id: 1 });
-  if (!doc) {
-    // migrate from legacy file if present
-    let parsed = { users: {} };
-    try {
-      const raw = await fsp.readFile(AUTH_PATH, 'utf8');
-      parsed = JSON.parse(raw);
-    } catch (_e) {
-      parsed = { users: {} };
-    }
-    authStore = normalizeStoredAuth(parsed);
-    await col.insertOne({ _id: 1, data: authStore });
+  if (doc && doc.data) {
+    authStore = normalizeStoredAuth(doc.data);
   } else {
-    authStore = normalizeStoredAuth(doc.data || { users: {} });
+    authStore = { users: {} };
+    await col.updateOne({ _id: 1 }, { $set: { data: authStore } }, { upsert: true });
   }
 }
 
@@ -737,24 +728,7 @@ function normalizeTrackingEntry(entry) {
 
 async function initializeTrackingStore() {
   const col = await getCollection('tracking');
-  // migrate existing log entries if collection empty
-  try {
-    const count = await col.countDocuments();
-    if (count === 0) {
-      const raw = await fsp.readFile(TRACKING_PATH, 'utf8');
-      const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          await appendTrackingEntry(entry);
-        } catch (_e) {
-          // ignore malformed lines
-        }
-      }
-    }
-  } catch (_e) {
-    // ignore if file missing or db error
-  }
+  // nothing to do; collection will be populated on demand
 }
 
 async function appendTrackingEntry(entry) {
@@ -1203,28 +1177,6 @@ async function initializePinStore() {
     nextPinId = last[0].id + 1;
   } else {
     nextPinId = 1;
-  }
-
-  // migrate from legacy JSON file if collection empty
-  try {
-    const count = await col.countDocuments();
-    if (count === 0) {
-      const raw = await fsp.readFile(PINS_PATH, 'utf8');
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        for (const rawPin of arr) {
-          const pin = normalizeStoredPin(rawPin);
-          if (pin && pin.image_path) {
-            await col.insertOne(pin);
-            if (typeof pin.id === 'number' && pin.id >= nextPinId) {
-              nextPinId = pin.id + 1;
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    // ignore migration errors
   }
 }
 
