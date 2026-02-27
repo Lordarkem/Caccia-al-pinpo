@@ -1,10 +1,7 @@
 ﻿node_modules/
 .env
-data/*.sqlite
-data/*.sqlite-shm
-data/*.sqlite-wal
-data/pins.json
-data/tracking.log
+# local data folder no longer used but still ignored
+ data/
 uploads/*
 !uploads/.gitkeep
 

@@ -17,7 +17,6 @@ Sito web con mappa gratuita (OpenStreetMap/Leaflet) dedicata al solo comune di M
 - autenticazione multiutente
 - passkey WebAuthn opzionale per utente
 - nessun ruolo: ogni utente autenticato puo creare/modificare/eliminare pin
-- tracking accessi/modifiche con IP, utente e azione
 
 ## Requisiti
 
@@ -68,7 +67,7 @@ npm run dev
 - La data mostrata e quella di inserimento del pin.
 - Per passkey il dominio/origine devono combaciare con `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
   Il server ora rileva automaticamente l'host della richiesta e lo aggiunge alle origini/ID accettate, in modo che il challenge venga generato con il dominio corrente.
-- Tracking opzionale salvato in tabella `tracking` del database (se `DATABASE_URL` impostato). In locale, se non presente, continua a usare `data/tracking.log`.
+- Tracking opzionale salvato in tabella `tracking` del database (se `DATABASE_URL` impostato).
 - Endpoint tracking: `GET /api/tracking?limit=200` (richiede login).
 
 ## Deploy Render
