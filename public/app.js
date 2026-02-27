@@ -482,10 +482,10 @@
   // MapLibre GL styles for different modes
   function getMapLibreStyle(mode) {
     if (mode === 'satellite') {
-      return 'https://demotiles.maplibre.org/style.json'; // placeholder; replace with actual satellite style if desired
+      return 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'; // CartoDB Voyager with satellite feel
     }
-    // standard OSM-style vector tiles
-    return 'https://demotiles.maplibre.org/style.json';
+    // CartoDB Positron - clean, lightweight OSM-based style
+    return 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
   }
 
   function setMapMode(mode, options = {}) {
